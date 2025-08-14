@@ -59,13 +59,16 @@ impl DBOrder for DB {
         println!("Sheet1 Row: {:?}", &sheet1_row);
         println!("Sheet2 Row: {:?}", &sheet2_row);
         // Call your function
-        let order: Order = Order::from_sheets(&sheet1_row, Some(&sheet2_row)).await.unwrap();
+        let i = 0; // for nothing
+        let order: Order = Order::from_sheets(i, &sheet1_row, Some(&sheet2_row)).await.unwrap();
         println!("Order created from sheets: {:?}", &order);
         let mut txn = self.env.write_txn()?;
         self.order_db.put(&mut txn, &order.id, &order)?;
+        self.order_db.put(&mut txn, &order.row_number.unwrap().to_string(), &order)?;
         txn.commit()?;
         Ok(())
     }
+
     async fn insert_all(&self) -> Result<(), Box<dyn Error>> {
         let file_content = fs::read_to_string("./src/service_account.json")?;
         let sa: ServiceAccount = serde_json::from_str(&file_content)?;
@@ -126,6 +129,7 @@ impl DBOrder for DB {
             println!("Processing row {}: {:?}", i, sheet1_row);
             println!("Sheet2 Row: {:?}", sheet2_row);
             let order_opt = Order::from_sheets(
+                i,
                 sheet1_row,
                 sheet2_row.map(|r| r.as_slice())
             ).await;
@@ -135,12 +139,14 @@ impl DBOrder for DB {
                 let exists = self.order_db.get(&txn, &order_id)?;
                 if exists.is_none() {
                     println!("Inserting new order: {}", order_id);
+                    // convert row_number to string for key
+                    let row_number = order.row_number.map(|v| v.to_string()).unwrap_or_default();
                     println!("Inserting order from row {}: {:?}", i, &order);
                     self.order_db.put(&mut txn, &order_id, &order)?;
+                    self.order_db.put(&mut txn, &row_number, &order)?;
                 } else {
                     println!("Order already exists, updating: {}", order_id);
                     self.order_db.put(&mut txn, &order_id, &order)?;
-
                 }
             }
         }
@@ -171,12 +177,16 @@ impl DBOrder for DB {
             Ok(Some(orders.clone()))
         }
     }
+
     fn put(&self, order: Order) -> Result<(), Box<dyn Error>> {
         let mut txn = self.env.write_txn()?;
-        self.order_db.put(&mut txn, &order.id, &order)?;
+        let row_number = order.row_number.map(|v| v.to_string()).unwrap_or_default();
+        self.order_db.put(&mut txn, &order.order_id, &order)?;
+        self.order_db.put(&mut txn, &row_number, &order)?;
         txn.commit()?;
         Ok(())
     }
+
     fn delete(&self, id: String) -> Result<(), Box<dyn Error>> {
         let mut txn = self.env.write_txn()?;
         self.order_db.delete(&mut txn, &id)?;

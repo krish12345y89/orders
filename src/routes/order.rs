@@ -1,5 +1,20 @@
-use actix_web::{ post, web, HttpResponse, Responder };
-use crate::{ lmdb::{ order::DBOrder, utils::DB }, schema::order::Order };
+use std::fs;
+use serde_json::Value;
+use actix_web::{ web, HttpResponse, Responder };
+use crate::{
+    lmdb::{ order::DBOrder, utils::DB },
+    schema::order::Order,
+    scripts::{
+        order::{ append_to_google_sheets, update_order_in_sheets },
+        utils::get_or_generate_token,
+    },
+};
+
+#[derive(serde::Deserialize)]
+struct ServiceAccount {
+    client_email: String,
+    private_key: String,
+}
 
 /// Insert a new Order
 #[utoipa::path(
@@ -12,8 +27,21 @@ use crate::{ lmdb::{ order::DBOrder, utils::DB }, schema::order::Order };
     )
 )]
 pub async fn insert_order(db: web::Data<DB>, item: web::Json<Order>) -> impl Responder {
-    match db.insert(item.into_inner()).await {
-        Ok(_) => HttpResponse::Created().finish(),
+    let order = item.into_inner();
+    match db.insert(order.clone()).await {
+        Ok(_) => {
+            let values = Order::to_sheet1_row(&order).await;
+            let file_content = fs::read_to_string("./src/service_account.json");
+            let sa: ServiceAccount = serde_json::from_str(&file_content.unwrap()).unwrap();
+            let access_token = get_or_generate_token(&sa.client_email, &sa.private_key).await;
+            let res = append_to_google_sheets(
+                access_token.unwrap(),
+                "16pzLDZosE9HIhrWRrxc8ZkWERhWf0LVnqx0SI4e_eas",
+                "Sheet1!A:Z",
+                values
+            ).await.unwrap();
+            HttpResponse::Created().finish()
+        }
         Err(e) => HttpResponse::InternalServerError().body(format!("Insert error: {}", e)),
     }
 }
@@ -73,39 +101,34 @@ pub async fn list_orders(db: web::Data<DB>) -> impl Responder {
 )]
 pub async fn update_order(db: web::Data<DB>, item: web::Json<Order>) -> impl Responder {
     let order = item.into_inner();
-    let order_id = order.order_id.clone();
+    println!("Updating order: {:?}", order);
     // 1. Pehle DB me Order update kar
-    if let Err(e) = db.put(order.clone()) {
-        
-        return HttpResponse::InternalServerError().body(format!("DB update failed: {}", e));
+    db.put(order.clone());
+    println!("entering update_order_in_sheets");
+    let values = Order::to_sheet1_row(&order).await;
+    let row_number = order.row_number.unwrap_or(0);
+    let file_content = fs
+        ::read_to_string("./src/service_account.json")
+        .expect("Failed to read service account file");
+    let sa: ServiceAccount = serde_json::from_str(&file_content).unwrap();
+    // println!("Service Account JSON: {}", &file_content.as_ref().unwrap().len());
+    let access_token = get_or_generate_token(&sa.client_email, &sa.private_key).await;
+
+    let values_2_d = vec![values];
+    println!("Updating order in sheets with row number: {}", row_number);
+    let ress = update_order_in_sheets(
+        access_token.unwrap(),
+        "16pzLDZosE9HIhrWRrxc8ZkWERhWf0LVnqx0SI4e_eas",
+        "Sheet1!A:Z",
+        row_number,
+        values_2_d
+    ).await;
+    match ress {
+        Ok(_) => println!("Order updated successfully in sheets"),
+        Err(e) => {
+            return HttpResponse::InternalServerError().body(format!("Sheets update error: {}", e));
+        }
     }
-
-    // // 2. Order id se sheets ke existing rows fetch kar
-    // // Assume order_id field unique id ke liye hai, agar tera alag id hai to use kar
-    // let order_id = order.order_id.as_str();
-
-    // let mut sheet1_row = match db.get_sheet1_row(order_id).await {
-    //     Some(row) => row,
-    //     None => vec!["".to_string(); 15],
-    // };
-
-    // let mut sheet2_row = match db.get_sheet2_row(order_id).await {
-    //     Some(row) => row,
-    //     None => vec!["".to_string(); 15],
-    // };
-
-    // // 3. Update rows based on order fields
-    // update_rows_for_order(&order, &mut sheet1_row, &mut sheet2_row);
-
-    // // 4. Save updated rows back
-    // if let Err(e) = db.save_sheet1_row(order_id, sheet1_row).await {
-    //     return HttpResponse::InternalServerError()
-    //         .body(format!("Sheet1 update failed: {}", e));
-    // }
-    // if let Err(e) = db.save_sheet2_row(order_id, sheet2_row).await {
-    //     return HttpResponse::InternalServerError()
-    //         .body(format!("Sheet2 update failed: {}", e));
-    // }
 
     HttpResponse::Ok().body("Order and sheets updated successfully")
 }

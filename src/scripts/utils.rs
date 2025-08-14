@@ -1,7 +1,7 @@
 use jsonwebtoken::{ Algorithm, EncodingKey, Header };
 use reqwest::Client;
 use serde::{ Deserialize, Serialize };
-use serde_json::{ Value };
+use serde_json::{ json, Value };
 use std::error::Error;
 use std::time::{ SystemTime, UNIX_EPOCH };
 
@@ -89,58 +89,64 @@ pub async fn get_or_generate_token(
 }
 
 impl Order {
-    pub fn to_sheet1_row(&self) -> Vec<String> {
+    pub async fn to_sheet1_row(order: &Order) -> Vec<String> {
         vec![
-            "".to_string(), // CHANNEL VLOOKUP
-            "".to_string(), // #REF!
-            "".to_string(), // SKU
-            "".to_string(), // #REF!
-            "".to_string(), // BIN RACK
-            self.order_id.clone(),
-            "".to_string(), // RETURN REASON
-            "".to_string(), // REFUND YES
-            self.date.clone(),
-            "".to_string(), // REFUNDED checkbox
-            "".to_string(), // STOCK ADDED
-            "".to_string(), // Refund Date
-            self.match_type.clone().unwrap_or_default(),
-            "".to_string() // Fraser Classification
+            "none".to_string(), // CHANNEL VLOOKUP
+            order.marketplace.to_string(), // #REF!
+            "none".to_string(), // SKU
+            order.returned_sku.clone().unwrap(), // #REF!
+            "none".to_string(), // BIN RACK
+            order.order_id.clone(),
+            "none".to_string(), // RETURN REASON
+            "Y".to_string(), // REFUND YES
+            order.date.clone(), // DATE
+            "FALSE".to_string(), // REFUNDED checkbox
+            "none".to_string(), // stock added
+            "none".to_string(), // refund date
+            "none".to_string(), // MATCH TYPE
+            "none".to_string() // Fraser Classification
         ]
     }
 
-    pub fn to_sheet2_row(&self) -> Vec<String> {
-        vec![
-            self.return_order.map(|v| v.to_string()).unwrap_or_default(),
-            self.shopify_id.clone().unwrap_or_default(),
-            self.marketplace.clone(),
-            self.returned_sku.clone().unwrap_or_default(),
-            self.offer_sku.clone().unwrap_or_default(),
-            self.matched_sku.clone().unwrap_or_default(),
-            self.match_type.clone().unwrap_or_default(),
-            self.row_number.map(|v| v.to_string()).unwrap_or_default(),
-            self.manual_confirmation.clone().unwrap_or_default(),
-            self.status.clone().unwrap_or_default(),
-            "".to_string(), // MARKETPLACE col duplicate
-            self.qty.map(|v| v.to_string()).unwrap_or_default(),
-            self.main_updated.clone().unwrap_or_default()
-        ]
-    }
+    // pub fn to_sheet2_row(&self) -> Vec<String> {
+    //     vec![
+    //         self.return_order.map(|v| v.to_string()).unwrap_or_default(),
+    //         self.shopify_id.clone().unwrap_or_default(),
+    //         self.marketplace.clone(),
+    //         self.returned_sku.clone().unwrap_or_default(),
+    //         self.offer_sku.clone().unwrap_or_default(),
+    //         self.matched_sku.clone().unwrap_or_default(),
+    //         self.match_type.clone().unwrap_or_default(),
+    //         self.row_number.map(|v| v.to_string()).unwrap_or_default(),
+    //         self.manual_confirmation.clone().unwrap_or_default(),
+    //         self.status.clone().unwrap_or_default(),
+    //         "".to_string(), // MARKETPLACE col duplicate
+    //         self.qty.map(|v| v.to_string()).unwrap_or_default(),
+    //         self.main_updated.clone().unwrap_or_default()
+    //     ]
+    // }
 }
 
 impl Order {
-    pub async fn from_sheets(sheet1_row: &[String], sheet2_row: Option<&[String]>) -> Option<Self> {
+    pub async fn from_sheets(
+        i: usize,
+        sheet1_row: &[String],
+        sheet2_row: Option<&[String]>
+    ) -> Option<Self> {
+        let refund_yes_or_no = sheet1_row.get(7).cloned().unwrap_or_default();
+        let refunded = sheet1_row.get(9).cloned().unwrap_or_default();
         let mut order = Order {
             id: uuid::Uuid::new_v4().to_string(),
-            marketplace: "shopify".to_string(),
+            marketplace: sheet1_row.get(1).unwrap().to_string(),
             order_id: sheet1_row.get(5).cloned().unwrap_or_default(),
             return_order: None,
             shopify_id: None,
             market_place_code: None,
-            returned_sku: None,
+            returned_sku: Some(sheet1_row.get(3).cloned().unwrap_or_default()),
             offer_sku: None,
             matched_sku: None,
             match_type: sheet1_row.get(12).cloned(),
-            row_number: None,
+            row_number: Some(i),
             manual_confirmation: None,
             status: None,
             qty: None,
@@ -148,23 +154,54 @@ impl Order {
             date: sheet1_row.get(8).cloned().unwrap_or_default(),
             created_at: chrono::Utc::now().to_rfc3339(),
             updated_at: chrono::Utc::now().to_rfc3339(),
+            boolean: false, // not needed
         };
-
-        if let Some(row2) = sheet2_row {
-            order.marketplace = row2.get(2).cloned().unwrap_or(order.marketplace);
-            order.return_order = row2.get(0).and_then(|s| s.parse().ok());
-            order.shopify_id = row2.get(1).cloned();
-            order.returned_sku = row2.get(3).cloned();
-            order.offer_sku = row2.get(4).cloned();
-            order.matched_sku = row2.get(5).cloned();
-            order.match_type = row2.get(6).cloned().or(order.match_type);
-            order.row_number = row2.get(7).and_then(|s| s.parse().ok());
-            order.manual_confirmation = row2.get(8).cloned();
-            order.status = row2.get(9).cloned();
-            order.qty = row2.get(11).and_then(|s| s.parse().ok());
-            order.main_updated = row2.get(12).cloned();
+        if refund_yes_or_no == "Y" && refunded == "FALSE" {
+            order.boolean = true; // Set boolean to false if both conditions are met
         }
+        // if let Some(row2) = sheet2_row {
+        //     order.marketplace = row2.get(2).cloned().unwrap_or(order.marketplace);
+        //     order.return_order = row2.get(0).and_then(|s| s.parse().ok());
+        //     order.shopify_id = row2.get(1).cloned();
+        //     order.returned_sku = row2.get(3).cloned();
+        //     order.offer_sku = row2.get(4).cloned();
+        //     order.matched_sku = row2.get(5).cloned();
+        //     order.match_type = row2.get(6).cloned().or(order.match_type);
+        //     order.row_number = row2.get(7).and_then(|s| s.parse().ok());
+        //     order.manual_confirmation = row2.get(8).cloned();
+        //     order.status = row2.get(9).cloned();
+        //     order.qty = row2.get(11).and_then(|s| s.parse().ok());
+        //     order.main_updated = row2.get(12).cloned();
+        // }
 
         Some(order)
     }
+}
+
+pub async fn append_to_google_sheets(
+    access_token: &str,
+    spreadsheet_id: &str,
+    range: &str,
+    values: Vec<String> // Multiple rows
+) -> Result<(), Box<dyn Error>> {
+    let url = format!(
+        "https://sheets.googleapis.com/v4/spreadsheets/{}/values/{}:append?valueInputOption=USER_ENTERED",
+        spreadsheet_id,
+        range
+    );
+
+    let body = json!({
+        "values": values
+    });
+
+    let client = Client::new();
+    let res = client.post(&url).bearer_auth(access_token).json(&body).send().await?;
+
+    if res.status().is_success() {
+        println!("✅ Rows appended successfully");
+    } else {
+        println!("❌ Error: {}", res.text().await?);
+    }
+
+    Ok(())
 }
