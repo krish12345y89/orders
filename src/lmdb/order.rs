@@ -1,7 +1,6 @@
 #[allow(unused_imports)]
 use std::error::Error;
 use std::fs;
-use serde_json::Value;
 
 use crate::{
     lmdb::utils::DB,

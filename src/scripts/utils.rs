@@ -131,7 +131,7 @@ impl Order {
     pub async fn from_sheets(
         i: usize,
         sheet1_row: &[String],
-        sheet2_row: Option<&[String]>
+        _sheet2_row: Option<&[String]>
     ) -> Option<Self> {
         let refund_yes_or_no = sheet1_row.get(7).cloned().unwrap_or_default();
         let refunded = sheet1_row.get(9).cloned().unwrap_or_default();
@@ -178,30 +178,3 @@ impl Order {
     }
 }
 
-pub async fn append_to_google_sheets(
-    access_token: &str,
-    spreadsheet_id: &str,
-    range: &str,
-    values: Vec<String> // Multiple rows
-) -> Result<(), Box<dyn Error>> {
-    let url = format!(
-        "https://sheets.googleapis.com/v4/spreadsheets/{}/values/{}:append?valueInputOption=USER_ENTERED",
-        spreadsheet_id,
-        range
-    );
-
-    let body = json!({
-        "values": values
-    });
-
-    let client = Client::new();
-    let res = client.post(&url).bearer_auth(access_token).json(&body).send().await?;
-
-    if res.status().is_success() {
-        println!("✅ Rows appended successfully");
-    } else {
-        println!("❌ Error: {}", res.text().await?);
-    }
-
-    Ok(())
-}

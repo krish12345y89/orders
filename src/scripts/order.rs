@@ -74,7 +74,7 @@ pub async fn update_order_in_sheets(
     Ok(())
 }
 
-pub async fn delete_order_in_sheets(
+pub async fn _delete_order_in_sheets(
     access_token: &str,
     sheet_id: &str,
     sheet1_range: &str,

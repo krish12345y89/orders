@@ -1,5 +1,4 @@
 use std::fs;
-use serde_json::Value;
 use actix_web::{ web, HttpResponse, Responder };
 use crate::{
     lmdb::{ order::DBOrder, utils::DB },
@@ -34,7 +33,7 @@ pub async fn insert_order(db: web::Data<DB>, item: web::Json<Order>) -> impl Res
             let file_content = fs::read_to_string("./src/service_account.json");
             let sa: ServiceAccount = serde_json::from_str(&file_content.unwrap()).unwrap();
             let access_token = get_or_generate_token(&sa.client_email, &sa.private_key).await;
-            let res = append_to_google_sheets(
+            let _res = append_to_google_sheets(
                 access_token.unwrap(),
                 "16pzLDZosE9HIhrWRrxc8ZkWERhWf0LVnqx0SI4e_eas",
                 "Sheet1!A:Z",
@@ -103,7 +102,7 @@ pub async fn update_order(db: web::Data<DB>, item: web::Json<Order>) -> impl Res
     let order = item.into_inner();
     println!("Updating order: {:?}", order);
     // 1. Pehle DB me Order update kar
-    db.put(order.clone());
+    let _ = db.put(order.clone());
     println!("entering update_order_in_sheets");
     let values = Order::to_sheet1_row(&order).await;
     let row_number = order.row_number.unwrap_or(0);
