@@ -33,7 +33,7 @@ pub async fn append_to_google_sheets(
 pub async fn update_order_in_sheets(
     access_token: String,
     sheet_id: &str,
-    sheet1_range: &str,
+    _sheet1_range: &str,
     row_number: usize,
     // sheet2_range: &str,
     sheet1_values: Vec<Vec<String>>
