@@ -1,10 +1,12 @@
 use std::fs;
 use actix_web::{ web, HttpResponse, Responder };
+use serde::Deserialize;
 use crate::{
     lmdb::{ order::DBOrder, utils::DB },
     schema::order::Order,
     scripts::{
         order::{ append_to_google_sheets, update_order_in_sheets },
+        update_fixed::update,
         utils::get_or_generate_token,
     },
 };
@@ -148,6 +150,20 @@ pub async fn delete_order(db: web::Data<DB>, path: web::Path<String>) -> impl Re
         Err(e) => HttpResponse::InternalServerError().body(format!("Delete error: {}", e)),
     }
 }
+#[derive(Deserialize)]
+struct UpdateParams {
+    order_id: String,
+    row_number: String,
+}
+
+async fn update_by_api(db: web::Data<DB>,query: web::Query<UpdateParams>) -> impl Responder {
+    let params: UpdateParams = query.into_inner();
+    println!("Updating order by API: {}", params.order_id);
+    match update(db , &params.order_id, params.row_number).await {
+        Ok(_) => HttpResponse::Ok().body("Order updated successfully"),
+        Err(e) => HttpResponse::InternalServerError().body(format!("Update error: {}", e)),
+    }
+}
 
 /// Configure routes for orders
 pub fn order_config(cfg: &mut web::ServiceConfig) {
@@ -164,5 +180,9 @@ pub fn order_config(cfg: &mut web::ServiceConfig) {
                 ::resource("/orders/{id}")
                 .route(web::get().to(get_order))
                 .route(web::delete().to(delete_order))
-        );
+        ).service(
+            web::resource("/order/update")
+                .route(web::get().to(update_by_api))
+        )
+        ;
 }

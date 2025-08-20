@@ -12,7 +12,8 @@ mod routes;
 async fn main() -> std::io::Result<()> {
     let path = "./lmdb_data";
     let db = init_db(path).await.expect("Failed to initialize database");
-
+    // initialise env
+    // dotenv::dotenv().ok();
     println!("🚀 Server starting at http://127.0.0.1:8080");
 
     HttpServer::new(move || {

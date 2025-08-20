@@ -1,5 +1,6 @@
 use serde::{ Deserialize, Serialize };
 use utoipa::ToSchema;
+use crate::schema::order_api::Orders;
 
 #[derive(Debug, Serialize, Deserialize, ToSchema, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
